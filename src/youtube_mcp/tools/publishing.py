@@ -6,6 +6,20 @@ from googleapiclient.http import MediaFileUpload
 
 from youtube_mcp.server import auth, mcp, quota
 
+# Writable fields of a video's `status` part. videos.list also returns
+# read-only fields (uploadStatus, failureReason, rejectionReason, madeForKids);
+# echoing those back on an update is at best ignored and at worst rejected, so
+# a read-modify-write of the status block must carry forward only these.
+_WRITABLE_STATUS_FIELDS = frozenset({
+    "privacyStatus",
+    "publishAt",
+    "license",
+    "embeddable",
+    "publicStatsViewable",
+    "selfDeclaredMadeForKids",
+    "containsSyntheticMedia",
+})
+
 
 @mcp.tool()
 def youtube_upload_video(
@@ -119,7 +133,20 @@ def youtube_update_video(
     body = {"id": video_id, "snippet": snippet}
 
     if privacy_status is not None:
-        body["status"] = {"privacyStatus": privacy_status}
+        # Read-modify-write the status block. videos.update replaces the whole
+        # status part with what we send, so building a bare {"privacyStatus": …}
+        # would reset every sibling field (embeddable, publicStatsViewable,
+        # license, selfDeclaredMadeForKids) and drop a scheduled publishAt.
+        # Carry forward the current writable fields and overlay privacyStatus.
+        new_status = {
+            k: v for k, v in status.items() if k in _WRITABLE_STATUS_FIELDS
+        }
+        new_status["privacyStatus"] = privacy_status
+        # publishAt is only valid while private; drop a stale schedule when
+        # moving to public/unlisted so the API doesn't reject the request.
+        if privacy_status != "private":
+            new_status.pop("publishAt", None)
+        body["status"] = new_status
         parts = "snippet,status"
     else:
         parts = "snippet"
@@ -127,10 +154,13 @@ def youtube_update_video(
     quota.consume("update")
     response = youtube.videos().update(part=parts, body=body).execute()
 
+    # A part='snippet' update returns no 'status' block, so read it defensively
+    # and surface privacy only when the server actually returned it.
+    response_status = response.get("status") or {}
     return {
         "id": response["id"],
         "title": response["snippet"]["title"],
-        "privacy": response["status"]["privacyStatus"],
+        "privacy": response_status.get("privacyStatus"),
         "updated": True,
     }
 
