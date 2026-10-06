@@ -33,7 +33,9 @@ def youtube_upload_video(
 ) -> dict:
     """Upload a video to YouTube.
 
-    Costs 1,600 quota units. Video is uploaded as private by default.
+    Costs 1 unit from the separate Video Uploads bucket (100 uploads/day),
+    nothing from the 10,000-unit daily pool (Google's billing since
+    2026-06-01). Video is uploaded as private by default.
 
     Args:
         file_path: Absolute path to the video file
@@ -82,7 +84,8 @@ def youtube_upload_video(
         "privacy": response["status"]["privacyStatus"],
         "publish_at": response["status"].get("publishAt"),
         "url": f"https://www.youtube.com/watch?v={response['id']}",
-        "quota_cost": 1600,
+        "quota_cost": 0,
+        "upload_quota_cost": 1,
     }
 
 

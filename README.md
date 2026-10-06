@@ -206,7 +206,7 @@ On first use, the server will open a browser window for Google OAuth consent. Si
 
 | Tool | Description |
 |------|-------------|
-| `youtube_upload_video` | Upload a video (1,600 quota units) |
+| `youtube_upload_video` | Upload a video (1 unit from the separate Video Uploads bucket) |
 | `youtube_update_video` | Update video metadata |
 | `youtube_set_thumbnail` | Upload custom thumbnail |
 | `youtube_delete_video` | Delete a video |
@@ -246,9 +246,10 @@ Key costs:
 - Most read operations: **1 unit**
 - Search: **100 units**
 - Write operations: **50 units**
-- Video upload: **1,600 units**
+- Caption upload: **400 units**
+- Video upload: **none from this pool**. Since 2026-06-01 `videos.insert` is billed to a separate Video Uploads bucket (1 unit per upload, 100 uploads per day), which the server tracks on its own.
 
-Use `youtube_auth_status` to check current quota usage.
+Use `youtube_auth_status` to check current quota usage (both buckets).
 
 ## Environment Variables
 

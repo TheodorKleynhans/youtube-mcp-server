@@ -78,3 +78,46 @@ def test_unknown_operation_defaults_to_1():
     tracker = QuotaTracker()
     tracker.consume("some_unknown_op")
     assert tracker.used == 1
+
+
+def test_video_upload_does_not_touch_the_daily_pool():
+    # Since 2026-06-01 videos.insert is billed to a separate Video Uploads
+    # bucket (1 unit each, 100 per day), not the 10,000-unit pool.
+    tracker = QuotaTracker(daily_limit=10_000)
+    tracker.consume("video_insert")
+    assert tracker.used == 0
+    assert tracker.remaining == 10_000
+    status = tracker.status()
+    assert status["uploads_used"] == 1
+    assert status["uploads_remaining"] == 99
+    assert status["uploads_limit"] == 100
+
+
+def test_seven_uploads_no_longer_exhaust_the_pool():
+    # At the old 1,600-unit charge the 7th upload raised QuotaExhaustedError.
+    tracker = QuotaTracker(daily_limit=10_000)
+    for _ in range(7):
+        tracker.consume("video_insert")
+    tracker.consume("search")
+    assert tracker.used == 100
+
+
+def test_upload_bucket_exhausts_at_its_own_limit():
+    tracker = QuotaTracker(daily_limit=10_000, upload_limit=2)
+    tracker.consume("video_insert", count=2)
+    with pytest.raises(QuotaExhaustedError, match="upload") as exc_info:
+        tracker.consume("video_insert")
+    assert exc_info.value.used == 2
+    assert exc_info.value.limit == 2
+    tracker.consume("list")  # the 10,000-unit pool is unaffected
+    assert tracker.used == 1
+
+
+def test_upload_bucket_resets_on_new_day():
+    tracker = QuotaTracker(upload_limit=1)
+    tracker.consume("video_insert")
+    with patch("youtube_mcp.utils.quota.date") as mock_date:
+        mock_date.today.return_value = date(2099, 1, 1)
+        mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
+        assert tracker.status()["uploads_used"] == 0
+        tracker.consume("video_insert")

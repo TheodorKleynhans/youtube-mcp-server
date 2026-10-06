@@ -28,7 +28,10 @@ class TestUploadVideo:
         )
         assert result["id"] == "new123"
         assert result["url"] == "https://www.youtube.com/watch?v=new123"
-        assert result["quota_cost"] == 1600
+        # Uploads come out of the separate Video Uploads bucket, not the
+        # 10,000-unit pool that quota_cost reports against.
+        assert result["quota_cost"] == 0
+        assert result["upload_quota_cost"] == 1
         mock_quota.consume.assert_called_once_with("video_insert")
 
     @patch("youtube_mcp.tools.publishing.quota")
